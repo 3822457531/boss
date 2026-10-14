@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>直聊小蜜</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div id="gate" class="hidden"></div>
+  <div id="app-shell">
+    <aside class="nav">
+      <div class="nav-brand">
+        <div class="nav-logo" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none">
+            <rect width="40" height="40" rx="12" fill="url(#navlg)"/>
+            <circle cx="20" cy="16" r="7" stroke="#fff" stroke-width="2"/>
+            <path d="M11 29c2.4-4.2 6-6.2 9-6.2s6.6 2 9 6.2" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="17" cy="15.5" r="1.3" fill="#fff"/><circle cx="23" cy="15.5" r="1.3" fill="#fff"/>
+            <defs><linearGradient id="navlg" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs>
+          </svg>
+        </div>
+        <div class="nav-brand-text">
+          <strong>直聊小蜜</strong>
+          <span>本机工作台 · 1.0</span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-group">运维</div>
+        <button type="button" data-page="overview" class="active">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg></span>
+          概览
+        </button>
+        <button type="button" data-page="auto">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 01-11.5 7.2L4 20l.9-4.2A8 8 0 1121 12z"/></svg></span>
+          自动回复
+        </button>
+        <button type="button" data-page="greet">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></span>
+          自动打招呼
+        </button>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-group">配置</div>
+        <button type="button" data-page="positions">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg></span>
+          职位与知识库
+        </button>
+        <button type="button" data-page="policy">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          红线与动作
+        </button>
+        <button type="button" data-page="rate">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          发送节奏
+        </button>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-group">诊断</div>
+        <button type="button" data-page="modelogs">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg></span>
+          模型日志
+        </button>
+        <button type="button" data-page="logs">
+          <span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h14"/></svg></span>
+          运行日志
+        </button>
+      </div>
+
+      <div class="nav-foot">
+        <span class="nav-foot-dot"></span>
+        本机本地运行
+      </div>
+    </aside>
+    <main id="main">
+      <p class="muted">加载中…</p>
+    </main>
+  </div>
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="modal-title">确认</h3>
+      <pre id="modal-body" class="raw"></pre>
+      <div class="row gap">
+        <button id="modal-cancel" class="ghost">取消</button>
+        <button id="modal-ok" class="danger">确认执行</button>
+      </div>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+  <script src="/static/_models_positions.js"></script>
+  <script>
+    pages.positions = renderPositions;
+    pages.modelogs = renderModelLogs;
+    pages.faq = renderFaq;
+    if (typeof window.__adminReady === "function") window.__adminReady();
+  </script>
+</body>
+</html>

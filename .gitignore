@@ -1,0 +1,38 @@
+# ============ 凭据：绝不入库 ============
+.env
+.env.bak
+.env.server
+.env.server.bak
+*.pem
+*.key
+
+# ============ 运行数据（含候选人个人信息 / 聊天记录 / 发送流水）============
+# 整个 data/ 不入库：raw_history、drafts、model_runs、batch_test、releases 均含隐私或大二进制
+data/
+boss-style-kb.rar
+# 根目录测试数据：含真实候选人简历摘要（姓名/年龄/学历/期望职位）
+测试用数据.txt
+
+# ============ Python ============
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+
+# ============ 构建与打包产物 ============
+runtime/
+dist/
+build/
+packaging/.cache/
+*.exe
+*.rar
+*.zip
+*.7z
+
+# ============ 备份与临时 ============
+*.bak
+*.tmp
+*.log
+.DS_Store
+Thumbs.db

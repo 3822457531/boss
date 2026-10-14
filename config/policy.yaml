@@ -1,0 +1,107 @@
+send_mode: auto_send
+dialog_v2:
+  enabled: true
+  dedup_threshold: 0.78
+thresholds:
+  intent_confidence_min: 0
+  handoff_prob_max: 0.95
+  redline_hit_prob_max: 0.35
+  wechat_prob_min: 0.6
+  action_confidence_min: 0.5
+rate_limit:
+  send_interval_min_sec: 20
+  send_interval_max_sec: 50
+  skip_gap_sec: 3
+  hourly_max: 10
+  daily_max: 40
+  quiet_start: '22:00'
+  quiet_end: 08:00
+  stop_on_captcha: true
+  bounce_mode: smart
+  bounce_chat_page: true
+  typing_delay_enabled: true
+  typing_delay_min_sec: 1.5
+  typing_delay_max_sec: 10
+  same_chat_watch: false
+  same_chat_watch_sec: 12
+  same_chat_watch_poll_sec: 2.5
+  same_chat_watch_max_rounds: 4
+  same_chat_recheck: false
+  same_chat_recheck_ttl_sec: 180
+  idle_poll_min_sec: 120
+  idle_poll_max_sec: 500
+reply:
+  faq_freedom: 2
+  casual_style: true
+actions:
+  resume: true
+  history: true
+  remark: true
+  agree-resume: true
+  request-attachment-resume: true
+  not-fit: false
+  wechat: true
+schedule:
+  greet_start: '21:00'
+  greet_end: '23:45'
+  reply_start: 06:00
+  reply_end: '20:15'
+greet:
+  enabled: true
+  daily_max: 80
+  job_keyword: ''
+  only_can_greet: true
+  age_min: 18
+  age_max: 40
+  gender: any
+  keywords: 计算机，软件,java,php
+  keywords_exclude: ''
+  reply: ''
+  window_start: '21:00'
+  window_end: '23:45'
+  pause_reply_during_greet: false
+  exclusive_window: false
+  unread_first: false
+resume_review:
+  enabled: true
+  read_min_sec: 60
+  read_max_sec: 120
+  ack_template: 收到你的简历了 我先看看匹配度哈～
+  invite_template: 简历看过了 整体还不错。方便的话可以来线下面试一下～
+sensitive_words:
+- 保证入职
+- 包过试用期
+- 一定能转正
+redlines:
+- 保证入职
+- 包过试用期
+- 一定能转正
+- 不用面试直接入职
+jobs:
+- id: default
+  title: 默认岗位
+  city: ''
+  salary: ''
+  requirements: ''
+  answers: {}
+knowledge:
+  faq_path: config/knowledge/faq.md
+  positions_dir: config/knowledge/positions
+  raw_history_path: data/raw_history.jsonl
+positions:
+  synced_at: '2026-09-29T13:15:18'
+  items:
+  - id: '1'
+    title: PHP
+    status: open
+    aliases:
+    - php
+    faq_path: config/knowledge/positions/保底4K-8K 招募娱乐主播 才艺主播.md
+    enabled: true
+stats:
+  today_auto_sent: 0
+  today_handoff: 0
+  today_date: '2026-09-30'
+  draft_adopted: 84
+  draft_total: 84
+  today_greet: 0
