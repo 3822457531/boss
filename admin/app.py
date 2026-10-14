@@ -251,23 +251,23 @@ def overview() -> dict[str, Any]:
     if not boss.get("cli_ok"):
         issues.append({
             "level": "error",
-            "text": boss.get("hint") or "自动化引擎不可用（请使用含 runtime 的直聊小蜜安装包）",
+            "text": boss.get("hint") or "程序组件缺失，请重新安装直聊小蜜",
             "goto": "logs",
         })
     if not llm["api_key"]["configured"]:
         issues.append({
             "level": "warn",
-            "text": "尚未下发大模型配置（请在总控台 8787 配置后重新激活/等待心跳）",
+            "text": "AI 回复服务还没准备好，请联系管理员",
             "goto": "overview",
         })
     if not jev["api_key"]["configured"]:
         issues.append({
             "level": "warn",
-            "text": "尚未下发 Jev 配置（请在总控台 8787 配置）",
+            "text": "消息判断服务还没准备好，请联系管理员",
             "goto": "overview",
         })
     if len(faq) == 0:
-        issues.append({"level": "warn", "text": "事实层知识库为空", "goto": "positions"})
+        issues.append({"level": "warn", "text": "还没配置常用问答，去「职位与知识库」添加", "goto": "positions"})
     pos_stats = {}
     try:
         from src.policy import position_stats

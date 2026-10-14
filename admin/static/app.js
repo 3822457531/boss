@@ -626,11 +626,11 @@ async function renderOverview() {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>
             </span>
             <div>
-              <div class="ov-mod-label">自动化引擎</div>
+              <div class="ov-mod-label">网页操作组件</div>
               <div class="ov-mod-stat ${bossOk ? "ok" : "bad"}">${bossOk ? "可用" : "异常"}</div>
             </div>
           </div>
-          <p class="ov-desc">${esc(d.boss?.hint || (bossOk ? "已检测到boss-ai引擎" : "引擎不可用"))}</p>
+          <p class="ov-desc">${esc(d.boss?.hint || (bossOk ? "已就绪" : "组件不可用"))}</p>
           <p class="ov-hint">来源：${esc(srcLabel)}</p>
           
         </article>
@@ -642,12 +642,12 @@ async function renderOverview() {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg>
             </span>
             <div>
-              <div class="ov-mod-label">大模型（总控下发）</div>
+              <div class="ov-mod-label">AI 回复服务</div>
               <div class="ov-mod-stat ${llmOk ? "ok" : ""}">${esc(llmLabel)}</div>
             </div>
           </div>
           <p class="ov-desc">${esc(d.llm.provider || "—")} · ${esc(d.llm.model || "—")} · ${esc(d.llm.api_key.mask || "无密钥")}</p>
-          <p class="ov-hint">密钥在总控台配置，本机不可改</p>
+          <p class="ov-hint">由服务商统一配置</p>
         </article>
 
         <article class="ov-card ov-mod">
@@ -657,12 +657,12 @@ async function renderOverview() {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
             </span>
             <div>
-              <div class="ov-mod-label">Jev 判断（总控下发）</div>
+              <div class="ov-mod-label">消息意图判断</div>
               <div class="ov-mod-stat ${jevOk ? "ok" : ""}">${esc(jevLabel)}</div>
             </div>
           </div>
           <p class="ov-desc">${esc(d.jev.provider || "—")} · ${esc(d.jev.model || "—")}</p>
-          <p class="ov-hint">Chrome：${chromeOk ? "已安装" : "未安装"}</p>
+          <p class="ov-hint">浏览器：${chromeOk ? "已就绪" : "未安装"}</p>
         </article>
       </div>
 
@@ -689,7 +689,7 @@ async function renderOverview() {
             <p class="ov-hint">自动发送 ${d.today_auto_sent} / 上限 ${d.daily_max ?? "—"} · 转人工 ${d.today_handoff}</p>
             <p class="ov-tags">
               <a class="link" data-goto="auto">自动循环</a>
-              <a class="link" data-goto="rate">频控</a>
+              <a class="link" data-goto="rate">发送节奏</a>
             </p>
           </div>
           <span class="ov-chev">›</span>
@@ -1018,21 +1018,21 @@ async function renderPolicy() {
   const actions = p.actions || {};
   const locked = new Set(["not-fit"]);
   const labels = {
-    resume: "在线简历（耗权益）",
+    resume: "查看在线简历（会消耗平台权益）",
     history: "沟通历史（只读）",
     remark: "备注",
     "agree-resume": "同意收简历",
-    "request-attachment-resume": "求简历（会发默认话术）",
+    "request-attachment-resume": "自动求简历（会先发一句说明）",
     "not-fit": "不合适（不可逆 · 仅人工）",
-    wechat: "换微信（boss action wechat：对方发起同意/我方主动发起均可；需开白名单）",
+    wechat: "自动换取微信（需平台已开通权限）",
   };
   $("#main").innerHTML = `
-    <h1>红线与动作白名单</h1>
+    <h1>红线与动作</h1>
     <div class="card">
       <h2 style="margin-top:0">发送模式</h2>
       <p class="ok-box" style="margin:0">已固定为<strong>全自动发送</strong>（与模拟聊天一致）。通过阈值后直接回复，不再使用人工审草稿。</p>
       <input type="hidden" id="send-mode" value="auto_send" />
-      <h2>动作白名单</h2>
+      <h2>允许系统自动点的按钮</h2>
       <p class="hint">Jev 会建议：继续沟通 / 换微信 / 求简历 / 同意收简历 / 邀请面试（话术）/ 换电话（话术）。下列开关控制「平台按钮」是否允许系统自动点；约面与要电话默认走文字模板。</p>
       ${Object.keys(labels).map(k => {
         const lock = locked.has(k);
@@ -1040,10 +1040,10 @@ async function renderPolicy() {
           <input type="checkbox" data-act="${k}" ${actions[k] ? "checked" : ""} ${lock ? "disabled" : ""} />
           ${esc(labels[k])}${lock ? " 🔒" : ""}</label>`;
       }).join("<br/>")}
-      <h2>红线（L3）</h2>
+      <h2>禁止说的话</h2>
       <textarea id="redlines">${esc((p.redlines || []).join("\n"))}</textarea>
-      <p class="hint">命中红线的草稿会被拦截，不发送。</p>
-      <h2>敏感词（命中转人工）</h2>
+      <p class="hint">出现这些词，消息一律不发。</p>
+      <h2>提醒我人工处理的关键词</h2>
       <textarea id="sensitive">${esc((p.sensitive_words || []).join("\n"))}</textarea>
       <p class="hint mt">职位与专属知识库请到「职位与知识库」页管理。</p>
       <button class="mt" id="policy-save">保存</button>
@@ -1191,13 +1191,13 @@ async function renderRate() {
           </span>
           <div>
             <h2 class="ov-sec-title">发消息节奏</h2>
-            <p class="ov-desc">两道闸：发出前停顿 + 换人歇一歇，不叠第三套钟。</p>
+            <p class="ov-desc">两道闸：打字停顿 + 换人歇一歇，不叠第三套钟。</p>
           </div>
         </div>
         <div class="ov-flow" aria-hidden="true">
           <span class="ov-flow-step">处理此人</span>
           <span class="ov-flow-arrow">→</span>
-          <span class="ov-flow-gate">发出前停顿</span>
+          <span class="ov-flow-gate">打字停顿</span>
           <span class="ov-flow-arrow">→</span>
           <span class="ov-flow-step">发送</span>
           <span class="ov-flow-arrow">→</span>
@@ -1207,7 +1207,7 @@ async function renderRate() {
         </div>
         <div class="ov-form-grid two mt">
           <div>
-            <label>发出前停顿（像在打字）</label>
+            <label>发送前模仿打字停顿</label>
             <select id="rl-typing">
               <option value="off" ${typing === "off" ? "selected" : ""}>关闭 · 立刻发出</option>
               <option value="natural" ${typing === "natural" ? "selected" : ""}>自然 · 推荐</option>
@@ -1216,7 +1216,7 @@ async function renderRate() {
             <p class="ov-hint">只在真正发文字时生效；跳过或只点按钮不计入。</p>
           </div>
           <div>
-            <label>换下一个人前（秒）</label>
+            <label>回复下一位候选人前，休息多久（秒）</label>
             <div class="ov-time-pair">
               <input id="rl-min" type="number" min="1" value="${esc(r.send_interval_min_sec ?? 20)}" />
               <span class="sep">～</span>
@@ -1225,13 +1225,13 @@ async function renderRate() {
             <p class="ov-hint">发过消息 / 换微信 / 打过招呼后，在此区间随机歇。</p>
           </div>
           <div>
-            <label>没有未读时，隔多久再看（秒）</label>
+            <label>没有新消息时，每隔多久看一眼（秒）</label>
             <div class="ov-time-pair">
               <input id="rl-idle-min" type="number" min="5" step="5" value="${esc(r.idle_poll_min_sec ?? r.idle_poll_sec ?? 60)}" />
               <span class="sep">～</span>
               <input id="rl-idle-max" type="number" min="5" step="5" value="${esc(r.idle_poll_max_sec ?? r.idle_poll_sec ?? 120)}" />
             </div>
-            <p class="ov-hint">空闲轮询，与「换人间隔」无关。建议不要太短。</p>
+            <p class="ov-hint">建议 1～2 分钟，别调太短。</p>
           </div>
         </div>
       </section>
@@ -1311,7 +1311,7 @@ async function renderRate() {
         </div>
         <div class="ov-checks" style="margin-top:0">
           <label class="check"><input id="rr-on" type="checkbox" ${rr.enabled !== false ? "checked" : ""} />
-            启用「假装看简历」排队</label>
+            收到简历后，隔几分钟再约面试</label>
         </div>
         <div class="ov-form-grid two mt">
           <div>
@@ -1708,7 +1708,7 @@ function patchAutoLive(s) {
   if (hint) {
     hint.textContent = wait > 0
       ? `倒计时中${s.wait_label ? " · " + s.wait_label : ""}`
-      : (running ? "处理中或空闲轮询间隙" : "启动后显示倒计时");
+      : (running ? "处理中或等待下一轮" : "启动后显示倒计时");
   }
 
   const box = $("#auto-follow-box");
@@ -1764,9 +1764,9 @@ async function renderAuto() {
         <div class="ov-hero-actions">
           <button type="button" class="ov-btn ov-btn-primary" id="auto-start" ${running ? "disabled" : ""}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 3l14 9-14 9V3z"/></svg>
-            启动常驻循环
+            开始自动回复
           </button>
-          <button type="button" class="ov-btn ov-btn-ghost" id="auto-once" ${running ? "disabled" : ""}>只跑一轮未读</button>
+          <button type="button" class="ov-btn ov-btn-ghost" id="auto-once" ${running ? "disabled" : ""}>立即处理一次新消息</button>
           <button type="button" class="ov-btn ov-btn-danger" id="auto-stop" ${running ? "" : "disabled"}>停止</button>
           <button type="button" class="ov-btn ov-btn-ghost" id="auto-refresh">刷新</button>
         </div>
@@ -1825,7 +1825,7 @@ async function renderAuto() {
           </div>
           <p class="ov-hint" id="auto-live-wait-hint">${wait > 0
             ? `倒计时中${s.wait_label ? " · " + esc(s.wait_label) : ""}`
-            : (running ? "处理中或空闲轮询间隙" : "启动后显示倒计时")}</p>
+            : (running ? "处理中或等待下一轮" : "启动后显示倒计时")}</p>
           <p class="ov-tags"><a class="link" data-goto="rate">发送节奏 →</a></p>
         </article>
       </div>
@@ -1836,7 +1836,7 @@ async function renderAuto() {
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>
           </span>
           <div>
-            <h2 class="ov-sec-title">假装看简历排队</h2>
+            <h2 class="ov-sec-title">简历看完再约面试</h2>
             <p class="ov-desc">同意收简历后等待 ${esc(readMin)}～${esc(readMax)} 分钟再发约面。
               <a class="link" data-goto="rate">调整时长与话术</a></p>
           </div>
