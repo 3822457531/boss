@@ -33,6 +33,8 @@ rate_limit:
 reply:
   faq_freedom: 2
   casual_style: true
+  # 对方一次连发多条时：合并成一次统一回复（而不是只回最后一条）
+  batch_multi_question: true
 actions:
   resume: true
   history: true

@@ -131,18 +131,27 @@ class Judge:
         policy: dict[str, Any],
         job: dict[str, Any] | None = None,
         history: list[dict[str, Any]] | None = None,
+        batch: list[str] | None = None,
     ) -> dict[str, Any]:
         """对候选人消息打意图 / 是否需回复 / 转人工 / 红线 / 下一步动作。
 
         history: 近期会话 [{role, text}, ...]，用于短句歧义与不必回复判断。
+        batch: 候选人一次连发的多条消息（按时间顺序）。≥2 条时按「整批」判断：
+            意图/红线取自全批文本；纯收悉须整批都是收悉；寒暄快路径不再直接放行。
         """
+        pending = [str(t).strip() for t in (batch or []) if str(t or "").strip()]
+        multi = len(pending) >= 2
+        # 整批文本：用于红线/敏感词/多义词这类「扫一遍」的判断
+        scan_text = "\n".join(pending) if multi else question
+        # 纯收悉：必须整批每条都是收悉，否则「好的」+「工资多少」会被误判成不必回复
+        pure_ack = all(is_pure_ack_message(t) for t in pending) if multi else is_pure_ack_message(question)
         thresholds = policy.get("thresholds") or {}
         redlines = list(policy.get("redlines") or []) + list(policy.get("sensitive_words") or [])
-        syn = synonym_hints_for_jev(question)
+        syn = synonym_hints_for_jev(scan_text)
         recent = _recent_messages_for_jev(history, limit=12)
 
         for word in policy.get("sensitive_words") or []:
-            if word and word in question:
+            if word and word in scan_text:
                 return _judgment_base(
                     intent="other",
                     intent_confidence=1.0,
@@ -158,7 +167,7 @@ class Judge:
                 )
 
         # 纯收悉：我方刚说过实质内容 → 不必回复（省 Jev）
-        if is_pure_ack_message(question) and _recruiter_recently_spoke(history):
+        if pure_ack and _recruiter_recently_spoke(history):
             return _judgment_base(
                 intent="other",
                 intent_confidence=0.85,
@@ -174,8 +183,8 @@ class Judge:
                 extra={"normalized_concepts": syn.get("normalized_concepts") or []},
             )
 
-        # 简单寒暄/还招人吗：直接放行
-        if is_simple_opener(question):
+        # 简单寒暄/还招人吗：直接放行。连发多条时不走快路径，交给 Jev/启发式整体判
+        if is_simple_opener(question) and not multi:
             return _judgment_base(
                 intent="greeting",
                 intent_confidence=0.9,
@@ -190,8 +199,8 @@ class Judge:
                 thresholds=thresholds,
             )
 
-        # 口语要微信：规则快路径
-        if looks_like_wechat_request(question):
+        # 口语要微信：规则快路径（整批里任意一条在要微信即命中）
+        if looks_like_wechat_request(scan_text):
             return _judgment_base(
                 intent="other",
                 intent_confidence=0.88,
@@ -208,16 +217,14 @@ class Judge:
             )
 
         if not self.enabled:
-            intent = self._heuristic_intent(question)
-            next_action, action_conf = self._heuristic_action(question)
-            need_reply = not (
-                is_pure_ack_message(question) and _recruiter_recently_spoke(history)
-            )
+            intent = self._heuristic_intent(scan_text)
+            next_action, action_conf = self._heuristic_action(scan_text)
+            need_reply = not (pure_ack and _recruiter_recently_spoke(history))
             return _judgment_base(
                 intent=intent,
                 intent_confidence=0.5,
                 handoff_prob=0.2,
-                redline_prob=0.1 if any(r in question for r in redlines if r) else 0.0,
+                redline_prob=0.1 if any(r in scan_text for r in redlines if r) else 0.0,
                 next_action=next_action,
                 action_confidence=action_conf,
                 handoff=False,
@@ -225,11 +232,11 @@ class Judge:
                 reason="jev_disabled",
                 engine="rule",
                 thresholds=thresholds,
-                extra={"ambiguous": _is_ambiguous_utterance(question)},
+                extra={"ambiguous": _is_ambiguous_utterance(question) and not multi},
             )
 
         state: dict[str, Any] = {
-            "candidate_message": question,
+            "candidate_message": scan_text,
             "redlines": redlines,
             "job_title": (job or {}).get("title") or "",
             "recent_messages": recent,
@@ -240,8 +247,13 @@ class Judge:
                 "若 candidate_offers_wechat / note 提示对方主动留微信看作品，不要选 wechat 动作，应 continue 文字沟通；"
                 "若含 ack_no_reply 且上文我方已说明完毕、对方无新问题，则不必再回。"
                 "短句歧义请结合 recent_messages 理解。"
+                "candidate_message 可能一次含多行（候选人连发多条）："
+                "intent / next_action 必须覆盖其中全部问题，不要只看最后一行；"
+                "只要有一行是实质提问，need_reply 就应为 true。"
             ),
         }
+        if multi:
+            state["candidate_messages"] = pending
         try:
             data = system_one(
                 state=state,
@@ -297,7 +309,7 @@ class Judge:
             # 自我介绍里「有意可加微信」≠ 要求发起换微信
             from src.synonyms import looks_like_candidate_offers_wechat
 
-            if next_action == "wechat" and looks_like_candidate_offers_wechat(question):
+            if next_action == "wechat" and looks_like_candidate_offers_wechat(scan_text):
                 next_action = "continue"
                 action_conf = min(action_conf, 0.4)
                 reasons_pre = ["对方主动留微信/作品，已取消换微信动作"]
@@ -320,7 +332,7 @@ class Judge:
                 reasons.append("红线风险过高")
             if not need_reply:
                 reasons.append("判定不必回复")
-            ambiguous = _is_ambiguous_utterance(question) or (
+            ambiguous = (_is_ambiguous_utterance(question) and not multi) or (
                 intent == "other" and conf < 0.55
             ) or (0.35 <= need_reply_prob <= 0.65)
             return _judgment_base(
@@ -343,11 +355,9 @@ class Judge:
                 },
             )
         except Exception as exc:
-            intent = self._heuristic_intent(question)
-            next_action, action_conf = self._heuristic_action(question)
-            need_reply = not (
-                is_pure_ack_message(question) and _recruiter_recently_spoke(history)
-            )
+            intent = self._heuristic_intent(scan_text)
+            next_action, action_conf = self._heuristic_action(scan_text)
+            need_reply = not (pure_ack and _recruiter_recently_spoke(history))
             return _judgment_base(
                 intent=intent,
                 intent_confidence=0.4,
@@ -360,7 +370,7 @@ class Judge:
                 reason=f"Jev 失败已降级规则：{exc}",
                 engine="fallback",
                 thresholds=thresholds,
-                extra={"ambiguous": _is_ambiguous_utterance(question)},
+                extra={"ambiguous": _is_ambiguous_utterance(question) and not multi},
             )
 
     def score_pair_quality(self, question: str, reply: str, policy: dict[str, Any]) -> float:

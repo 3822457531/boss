@@ -695,8 +695,19 @@ class AutoLoop:
             self._clear_recheck(name)
             return "skip"
 
+        # 连发多条：结构性收集「我方上一条回复之后」的全部候选人消息，合并成一次统一回复
+        pending_texts = _collect_pending_incoming(messages)
+        if pending_resume:
+            questions = [pending_resume]
+        elif len(pending_texts) >= 2:
+            questions = pending_texts
+        else:
+            questions = [last_cand]
+        if len(questions) >= 2:
+            self.log(f"{name}：检测到连发 {len(questions)} 条，合并统一回复")
+
         judgment = judge.evaluate_incoming(
-            last_cand, policy=policy, job=job, history=messages
+            last_cand, policy=policy, job=job, history=messages, batch=questions
         )
         next_action = str(judgment.get("next_action") or "continue")
         self.log(
@@ -859,6 +870,7 @@ class AutoLoop:
                 history=messages,
                 chat_position=chat_position or None,
                 ambiguous=bool(judgment.get("ambiguous")),
+                questions=questions,
             )
             draft = (gen.get("draft") or "").strip()
             gen_reason = str(gen.get("reason") or "") or "warmup_before_request_resume"
@@ -901,6 +913,7 @@ class AutoLoop:
                 history=messages,
                 chat_position=chat_position or None,
                 ambiguous=bool(judgment.get("ambiguous")),
+                questions=questions,
             )
             draft = (gen.get("draft") or "").strip()
             gen_reason = str(gen.get("reason") or "")
@@ -1158,6 +1171,26 @@ def _is_resume_need_message_error(text: str) -> bool:
     t = text or ""
     keys = ("各至少发送一条", "互发消息", "求简历」不可用", "求简历不可用", "请先与对方互发")
     return any(k in t for k in keys)
+
+
+def _collect_pending_incoming(messages: list[dict[str, Any]]) -> list[str]:
+    """收集「我方最后一条回复之后」的全部候选人正文（按时间顺序）。
+
+    纯结构判定，不依赖时间戳：BOSS 聊天记录的时间只精确到分钟，且同批连发会共用
+    同一个时间串（boss-cli 抓取时 currentTime 是粘性的），据此算间隔不可靠。
+    与 src/sim_chat.py 的 _pending_candidate_texts 同一语义。
+    """
+    pending: list[str] = []
+    for m in messages or []:
+        role = m.get("role")
+        if role == "recruiter":
+            # 遇到我方的回复就清空：只保留「上一轮之后」积压的那批
+            pending = []
+        elif role == "candidate":
+            text = (m.get("text") or "").strip()
+            if text:
+                pending.append(text)
+    return pending
 
 
 def _pick_last_incoming(messages: list[dict[str, Any]]) -> str | None:

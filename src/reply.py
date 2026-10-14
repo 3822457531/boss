@@ -106,13 +106,17 @@ def generate_reply(
     history: list[dict[str, Any]] | None = None,
     chat_position: str | None = None,
     ambiguous: bool = False,
+    questions: list[str] | None = None,
 ) -> dict[str, Any]:
     """生成回复草稿（默认不发送）。2.0：阶段/已说/目标 + Jev 辅诊 + FAQ/LLM。
 
     history: 可选会话消息 [{role, text}, ...]，role 为 candidate/recruiter/system。
     chat_position: boss chat「沟通职位」，有则围绕该岗位答，勿罗列全部岗位。
     ambiguous: 判断层认为短句/歧义时，强制提示结合上文。
+    questions: 候选人一次连发的多条待答问题（按时间顺序）。≥2 条时走「多话题合并」
+        路径：一次把每条明确问到的点都答完，而不是只答最后一条。
     """
+    pending = [str(t).strip() for t in (questions or []) if str(t or "").strip()]
     from src.dialog_v2 import (
         apply_outbound_gate,
         build_dialog_state,
@@ -122,6 +126,15 @@ def generate_reply(
 
     load_env()
     policy = load_policy(policy_path)
+    # 连发多条合并：≥2 条且开关未关闭时走「多话题」路径；否则退回单条语义（零行为变化）
+    multi = len(pending) >= 2 and bool(
+        (policy.get("reply") or {}).get("batch_multi_question", True)
+    )
+    if multi and pending[-1] != (question or "").strip():
+        # 批次末条才是「最新一句」，统一口径，保证 history 去重一致
+        question = pending[-1]
+    if not multi:
+        pending = []
     position_name = _infer_position_from_history(history, chat_position or "")
     matched = resolve_position(policy, position_name, job_id=job_id)
     job = get_job(policy, (matched or {}).get("id") if matched else job_id)
@@ -231,7 +244,38 @@ def generate_reply(
             "intent": "resume",
         })
 
-    faq_hit = _reply_from_faq(question, sections)
+    # 连发多条：优先走「多话题合并」。逐条匹配栏目，全部命中才合并改写；
+    # 只要有一条落在事实库外，就交给下面的 other 路径（带多话题事实块）统一作答。
+    multi_titles: list[str] = []
+    if multi:
+        matches = _match_faq_topics(pending, sections)
+        multi_titles = _ordered_titles(matches)
+        all_matched = all(t != "other" for _q, t, _c, _e in matches)
+        if multi_titles and all_matched:
+            multi_draft, multi_how = _faq_multi_draft(
+                questions=pending,
+                titles=multi_titles,
+                sections=sections,
+                policy=policy,
+                job=job,
+                history=history,
+                chat_position=position,
+                mem_block=mem_block,
+            )
+            if multi_draft:
+                return _finalize({
+                    "draft": multi_draft,
+                    "handoff": False,
+                    "reason": f"faq_multi:{'+'.join(multi_titles)}:{multi_how}",
+                    "mode": policy.get("send_mode"),
+                    "intent": intent,
+                    "faq_title": "+".join(multi_titles),
+                    "faq_freedom": _faq_freedom_level(policy),
+                    "faq_rewrite": multi_how,
+                    "chat_position": position or None,
+                })
+
+    faq_hit = None if multi else _reply_from_faq(question, sections)
     if faq_hit:
         title = str(faq_hit["title"])
         # 2.0：已过开场后禁止再命中「打招呼」FAQ（否则易复读还在招）
@@ -313,17 +357,35 @@ def generate_reply(
             "faq_title": "other",
         })
 
-    history_block = _format_chat_history(history, question)
-    fact_block = _facts_for_other_question(question, sections, position)
+    history_block = _format_chat_history(history, question, drop_tail=pending or None)
+    fact_block = (
+        _facts_for_questions(pending, sections, position, titles=multi_titles)
+        if multi
+        else _facts_for_other_question(question, sections, position)
+    )
+    ask_block = _render_ask_block(pending, question)
     pos_line = f"当前沟通职位：{position}\n" if position else "当前沟通职位：未知（勿编造具体岗位名）\n"
     casual = _casual_style_enabled(policy)
+    # 多话题时放宽篇幅与作答范围（单条路径的措辞原样保留）
+    length_hint = "约 20～110 字" if multi else "约 12～70 字"
+    ask_rule = (
+        "候选人一次发来多条，必须在同一条回复里把每条明确问到的点都答到，一条都不要漏；"
+        "「可用事实」里没有给出的一律不要提。"
+        if multi
+        else "只回答候选人最新一条里明确问到的点；未问到的薪资/五险/工时/休假等一律不要提。"
+    )
+    user_tail = (
+        "请直接写出回复正文（把上面几件事都答到，自然衔接成一段话；不要分点编号，不要复读开场白）。"
+        if multi
+        else "请直接写出回复正文（承接最新一句并完成目标；不要复读自己说过的开场白）。"
+    )
     system = (
         "你是公司招聘 HR，正在 Boss 直聘上跟候选人文字聊天。"
-        "只输出给候选人看的一条回复正文（约 12～70 字），禁止思考过程、标题、引号说明。"
-        "只回答候选人最新一条里明确问到的点；未问到的薪资/五险/工时/休假等一律不要提。"
+        f"只输出给候选人看的一条回复正文（{length_hint}），禁止思考过程、标题、引号说明。"
+        f"{ask_rule}"
         "必须遵守给定事实，不可编造；有「当前沟通职位」时只围绕该岗位说，不要把其它岗位一股脑列出。"
         "禁止只回复「无」「好」「嗯」等单字。"
-        f"{ambiguous_hint}"
+        f"{ambiguous_hint if not multi else ''}"
         f"{mem_block}"
         f"{_oral_style_rules(casual)}"
     )
@@ -334,8 +396,8 @@ def generate_reply(
         f"本轮必须完成的目标：{dlg.goal_hint}\n"
         f"可用事实（仅供回答所问；不要主动扩展）：\n{fact_block}\n\n"
         f"{history_block}"
-        f"候选人最新一条：{question}\n"
-        "请直接写出回复正文（承接最新一句并完成目标；不要复读自己说过的开场白）。"
+        f"{ask_block}"
+        f"{user_tail}"
     )
     try:
         text = _llm_chat(
@@ -383,14 +445,26 @@ def generate_reply(
     })
 
 
+def _render_ask_block(pending: list[str], question: str) -> str:
+    """候选人一次连发多条 → 渲染成「待答清单」；单条时就是最新一条。"""
+    if len(pending) >= 2:
+        lines = "\n".join(f"{i}) {t}" for i, t in enumerate(pending, 1))
+        return (
+            f"候选人一次连发 {len(pending)} 条，必须在同一条回复里全部答到"
+            f"（不要逐条回、不要只答最后一条）：\n{lines}\n"
+        )
+    return f"候选人最新一条：{question}\n"
+
+
 def _format_chat_history(
     history: list[dict[str, Any]] | None,
     question: str,
     *,
     max_turns: int = 16,
+    drop_tail: list[str] | None = None,
 ) -> str:
     """把会话消息压成给 LLM 的上下文块（兜底文本；主路径还会走 messages 数组）。"""
-    turns = _history_turns(history, question, max_turns=max_turns)
+    turns = _history_turns(history, question, max_turns=max_turns, drop_tail=drop_tail)
     if not turns:
         return (
             "近期对话：无（若最新一条是「可以/好的」等短句，按同意继续沟通理解，"
@@ -405,8 +479,13 @@ def _history_turns(
     question: str,
     *,
     max_turns: int = 16,
+    drop_tail: list[str] | None = None,
 ) -> list[tuple[str, str]]:
-    """归一化为 [(user|assistant, text), ...]，去掉与最新一句重复的末条候选人消息。"""
+    """归一化为 [(user|assistant, text), ...]，去掉与最新一句重复的末条候选人消息。
+
+    drop_tail: 已在「待答清单」里单独呈现的连发批次。从历史尾部整批剔除，
+        避免同一句在 prompt 里出现两次（历史一次、清单一次）。
+    """
     if not history:
         return []
     role_map = {
@@ -425,7 +504,11 @@ def _history_turns(
         if not role or not text or role == "system":
             continue
         turns.append((role, text[:300]))
-    if turns and qnorm and turns[-1][0] == "user" and turns[-1][1] == qnorm:
+    drop_set = {str(t).strip()[:300] for t in (drop_tail or []) if str(t or "").strip()}
+    if drop_set:
+        while turns and turns[-1][0] == "user" and turns[-1][1] in drop_set:
+            turns = turns[:-1]
+    elif turns and qnorm and turns[-1][0] == "user" and turns[-1][1] == qnorm:
         turns = turns[:-1]
     if len(turns) > max_turns:
         turns = turns[-max_turns:]
@@ -784,6 +867,36 @@ def _facts_for_other_question(
     return "\n".join(lines)
 
 
+def _facts_for_questions(
+    questions: list[str],
+    sections: list[dict[str, str]],
+    position: str,
+    titles: list[str] | None = None,
+) -> str:
+    """连发多条：把每条命中栏目的事实块合并给出（去重、保序），仍然禁止整份 FAQ。"""
+    if not sections:
+        return "(事实库为空)"
+    all_titles = [s["title"] for s in sections]
+    wanted = [t for t in (titles or []) if t and t != "other"]
+    if not wanted:
+        for q in questions:
+            t, _c, _e = _heuristic_faq_topic(q, all_titles, sections)
+            if t and t != "other" and t not in wanted:
+                wanted.append(t)
+    lines: list[str] = []
+    if position:
+        lines.append(f"当前沟通职位：{position}")
+    for title in wanted:
+        body = next((s["body"] for s in sections if s["title"] == title), "")
+        body = _scope_faq_body_to_position(title, body, position)
+        if body:
+            lines.append(f"## {title}\n{body}")
+    if len(lines) > (1 if position else 0):
+        return "\n".join(lines)
+    # 一条栏目都没命中：退回单问题兜底口径
+    return _facts_for_other_question(questions[-1] if questions else "", sections, position)
+
+
 def _looks_like_faq_verbatim(text: str, title: str, body: str, verbatim: str) -> bool:
     """识别仍像说明书/原文直出的回复。"""
     t = (text or "").strip()
@@ -965,6 +1078,158 @@ def _heuristic_faq_topic(
         if best and best[1] >= 1:
             return best[0], 0.82, "rule_body"
     return "other", 0.0, "rule"
+
+
+def _match_faq_topics(
+    questions: list[str], sections: list[dict[str, str]]
+) -> list[tuple[str, str, float, str]]:
+    """逐条匹配 FAQ 栏目：启发式优先（省 Jev 调用），未命中再走完整选题。
+
+    返回 [(question, title|other, confidence, engine), ...]，与入参等长、同序。
+    逐条独立匹配，天然绕开「_TOPIC_HEURISTICS 顺序取首个命中」造成的偏置——
+    连发的「工资如何」+「可以调休不」会分别命中薪资范围与休假，而不是只答先出现的那条。
+    """
+    titles = [s["title"] for s in sections]
+    out: list[tuple[str, str, float, str]] = []
+    for q in questions:
+        h_title, h_conf, h_engine = _heuristic_faq_topic(q, titles, sections)
+        if h_title != "other" and h_conf >= 0.8:
+            out.append((q, h_title, h_conf, h_engine))
+            continue
+        title, conf, engine = _pick_faq_topic(q, sections)
+        out.append((q, title, conf, engine))
+    return out
+
+
+def _ordered_titles(matches: list[tuple[str, str, float, str]]) -> list[str]:
+    """按首次出现顺序取命中的栏目名（去重，剔除 other）。"""
+    seen: list[str] = []
+    for _q, title, _conf, _engine in matches:
+        if title and title != "other" and title not in seen:
+            seen.append(title)
+    return seen
+
+
+def _faq_multi_draft(
+    *,
+    questions: list[str],
+    titles: list[str],
+    sections: list[dict[str, str]],
+    policy: dict[str, Any],
+    job: dict[str, Any],
+    history: list[dict[str, Any]] | None,
+    chat_position: str = "",
+    mem_block: str = "",
+) -> tuple[str, str]:
+    """多话题合并改写：一次答完多个 FAQ 栏目，仍然只用既定事实口径。
+
+    与单栏目版本的关键区别：允许同一条回复里出现多个栏目的口径，因此**不套用
+    `_faq_answer_overbroad`**——那个守卫是按「单栏目回答」定义的，多话题下必然误伤
+    （例如薪资+休假同答会被判成「一股脑」）。跨岗位泄漏守卫仍然保留。
+    """
+    blocks: list[tuple[str, str]] = []
+    for title in titles:
+        body = next((s["body"] for s in sections if s["title"] == title), "")
+        body = _scope_faq_body_to_position(title, body, chat_position)
+        if body:
+            blocks.append((title, body))
+    if not blocks:
+        return "", "empty"
+
+    freedom = _faq_freedom_level(policy)
+    if freedom <= 0:
+        return " ".join(_format_faq_reply(t, b) for t, b in blocks), "verbatim"
+
+    key = (os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+    base = (os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "").rstrip("/")
+
+    def _light() -> tuple[str, str]:
+        parts = [_light_paraphrase_faq(t, b, freedom, chat_position) for t, b in blocks]
+        return " ".join(p for p in parts if p), "light"
+
+    if not key or not base:
+        return _light()
+
+    pos = (chat_position or "").strip()
+    job_key = _detect_job_key(pos)
+    if pos and job_key:
+        pos_hint = (
+            f"当前沟通职位：{pos}（按「{job_key}」理解）。"
+            f"事实口径已只保留该岗位；严禁提其它岗位（如人事/主播/歌手里非当前岗）的职责或清单。"
+        )
+    elif pos:
+        pos_hint = f"当前沟通职位：{pos}。只围绕该职位说，不要罗列其它岗位。"
+    else:
+        pos_hint = "当前沟通职位：未知。不要主动罗列多个岗位的职责。"
+
+    facts = "\n\n".join(f"【{t}】\n{b}" for t, b in blocks)
+    ask = "\n".join(f"{i}) {q}" for i, q in enumerate(questions, 1))
+    casual = _casual_style_enabled(policy)
+    system = (
+        "你是公司招聘 HR，正在 Boss 直聘上跟候选人文字聊天。"
+        "只输出一条回复正文（约 20～110 字），不要标题、不要引号、不要思考过程。"
+        f"候选人一次问了几件事，必须在同一条回复里逐件答到，一件都不要漏。"
+        "每件事只用下面【】里对应的事实口径；严禁引入未给出的事实，"
+        "也不要把口径里没有的其它栏目（未在【】中列出的）带出来。"
+        "必须严格依据给定事实，不可编造。"
+        "禁止「栏目名：内容」说明书口吻；像微信聊天一样自然衔接成一段话。"
+        f"{mem_block}"
+        f"{_oral_style_rules(casual)}"
+    )
+    user = (
+        f"岗位配置名：{job.get('title')}\n"
+        f"{pos_hint}\n"
+        f"候选人一次连发以下问题：\n{ask}\n\n"
+        f"可用事实（每件事只用对应那一条，不要扩写、不要遗漏）：\n{facts}\n\n"
+        f"{_format_chat_history(history, questions[-1], max_turns=6, drop_tail=questions)}"
+        f"改写自由度：{freedom}/3。\n"
+        "请直接写出这次的回复（把上面几件事都答到，自然衔接，不要分点编号）。"
+    )
+    temperature = _reply_temperature(policy, {1: 0.62, 2: 0.82, 3: 0.98}.get(freedom, 0.82))
+    try:
+        text = _llm_chat(
+            user,
+            purpose="faq_multi",
+            system=system,
+            history=history,
+            question="\n".join(questions),
+            temperature=temperature,
+        ).strip()
+    except Exception:
+        return _light()
+
+    if _is_useless_draft(text) or _looks_like_reasoning_leak(text):
+        return _light()
+    leak = any(
+        _faq_leaks_other_jobs(text, t, chat_position, b)
+        for t, b in blocks
+        if t in {"工作内容", "岗位"}
+    )
+    if leak:
+        try:
+            text2 = _llm_chat(
+                user + "\n注意：只答上面【】里的事实，别提其它岗位，一段话即可。",
+                purpose="faq_multi_retry",
+                system=system,
+                history=history,
+                question="\n".join(questions),
+                temperature=min(1.0, temperature + 0.12),
+            ).strip()
+            if (
+                text2
+                and not _is_useless_draft(text2)
+                and not _looks_like_reasoning_leak(text2)
+                and not any(
+                    _faq_leaks_other_jobs(text2, t, chat_position, b)
+                    for t, b in blocks
+                    if t in {"工作内容", "岗位"}
+                )
+            ):
+                return text2, "llm"
+        except Exception:
+            pass
+        return _light()
+    return text, "llm"
 
 
 _CONFIRM_TAIL_RE = re.compile(r"(吗|嘛|么|吧)\s*[?？!！.。~～…]*$", re.I)

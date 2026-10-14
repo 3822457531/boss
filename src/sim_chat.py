@@ -211,6 +211,7 @@ class SimChatStore:
                 prior_messages=prior,
                 candidate_name=str(session.get("candidate") or "模拟会话"),
                 chat_position=str(session.get("job_title") or "") or None,
+                pending_batch=batch,
             )
         finally:
             judge.close()
@@ -530,6 +531,7 @@ def _process_turn(
     prior_messages: list[dict[str, Any]] | None = None,
     candidate_name: str = "模拟会话",
     chat_position: str | None = None,
+    pending_batch: list[str] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     new_messages: list[dict[str, Any]] = []
@@ -553,8 +555,12 @@ def _process_turn(
             )
         )
 
+    # 与真实 auto_loop 对齐：连发多条时把整批交给判断层与生成层，一次统一回复
+    pending_texts = [str(t).strip() for t in (pending_batch or []) if str(t or "").strip()]
+    questions = pending_texts if len(pending_texts) >= 2 else [effective]
+
     judgment = judge.evaluate_incoming(
-        effective, policy=policy, job=job, history=msgs
+        effective, policy=policy, job=job, history=msgs, batch=questions
     )
     next_action = str(judgment.get("next_action") or "continue")
     actions = policy.get("actions") or {}
@@ -735,6 +741,7 @@ def _process_turn(
             history=list(prior_messages or []) + [{"role": "candidate", "text": effective}],
             chat_position=pos or None,
             ambiguous=bool(judgment.get("ambiguous")),
+            questions=questions,
         )
         warmup = (gen.get("draft") or "").strip()
         dlg = gen.get("dialog") or {}
@@ -828,6 +835,7 @@ def _process_turn(
             intent=str(judgment.get("intent") or "other"),
             history=list(prior_messages or []) + [{"role": "candidate", "text": effective}],
             chat_position=pos or None,
+            questions=questions,
         )
         draft = (gen.get("draft") or "").strip()
         gen_reason = str(gen.get("reason") or "")
